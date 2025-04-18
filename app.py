@@ -1,164 +1,176 @@
 import streamlit as st
 import pandas as pd
-import joblib # Or import pickle if you used that to save models
+import joblib
 import os
 import re
+import sys # Keep for potential future debugging if needed
 
 # --- Configuration ---
 MODELS_DIR = 'prediction_models'
 WORDCLOUDS_DIR = 'wordclouds_by_category'
 SCORE_THRESHOLD = 200
-# Define the expected features for the models IN THE CORRECT ORDER
-# IMPORTANT: This order must match the order used when training the models!
+# Ensure this order matches the features your models were trained on
 EXPECTED_FEATURES = ['reply_count', 'thumbs_up', 'thumbs_down', 'stars']
 
 # --- Helper Functions ---
 
-def clean_category_name_for_files(category_name):
-    """Cleans category name to match file/folder naming convention."""
-    # This should match the cleaning logic used in recipe_cloud_generator.py
-    # Example: Replace spaces and '&' with underscores, remove other special chars
-    name = category_name.replace(' & ', '_') # Handle specific replacements first
-    name = re.sub(r'[^\w\-_\.]', '_', name) # Replace remaining invalid chars with underscore
+def clean_category_name_for_model_files(category_name):
+    """Cleans category name to match the MODEL filename convention."""
+    name = category_name.replace(' & ', '_and_')
+    # Replace non-alphanumeric (allow _, -, .)
+    name = re.sub(r'[^\w\-\.]', '_', name)
+    # Consolidate underscores
+    name = re.sub(r'_+', '_', name)
     return name
 
-@st.cache_resource # Cache the loaded model to improve performance
+def format_category_for_wordcloud_path(category_name):
+    """Formats category name to match the WORD CLOUD folder/file convention."""
+    # Handle ' & ' specifically
+    name = category_name.replace(' & ', ' _ ')
+    # Assuming single names like 'Breakfast' or 'Dessert Specialties' don't need formatting
+    return name
+
+# Use Streamlit's caching for models to avoid reloading on every interaction
+@st.cache_resource
 def load_model(category_name):
     """Loads the pre-trained model for the selected category."""
-    model_filename = f"{clean_category_name_for_files(category_name)}_model.pkl" # Assuming this naming convention
+    model_formatted_name = clean_category_name_for_model_files(category_name)
+    model_filename = f"{model_formatted_name}.pkl"
     model_path = os.path.join(MODELS_DIR, model_filename)
+
+    # Log attempt to backend/terminal (useful for Streamlit Cloud logs)
+    print(f"[Model Load] Attempting to load model from path: {model_path}")
+
     try:
-        model = joblib.load(model_path) # Or pickle.load(open(model_path, 'rb'))
-        print(f"Successfully loaded model from {model_path}")
+        # Check existence first
+        if not os.path.exists(model_path):
+             st.error(f"Model file not found: '{model_path}'. Check repository.")
+             print(f"[Error] Model file does not exist at expected path: {model_path}")
+             return None
+
+        # Load the model
+        model = joblib.load(model_path)
+        print(f"[Model Load] Successfully loaded model for '{category_name}'.")
         return model
-    except FileNotFoundError:
-        st.error(f"Error: Model file not found for category '{category_name}' at {model_path}. Please ensure the model exists and the naming is correct.")
-        return None
+
+    # Handle potential version/corruption errors during loading
+    except (AttributeError, ModuleNotFoundError, ImportError) as version_err:
+         st.error(f"Model Load Error for '{category_name}': {version_err}")
+         st.error("This likely means a mismatch between the environment used to save the model (.pkl file) and the environment running this app (Python or library versions like NumPy/Scikit-learn).")
+         st.warning("Ensure 'requirements.txt' matches the model saving environment. Re-saving the model might be necessary.")
+         print(f"[Error] Version mismatch or import error loading {model_path}: {version_err}")
+         return None
+    # Handle other potential errors during loading
     except Exception as e:
-        st.error(f"Error loading model for '{category_name}': {e}")
+        st.error(f"An unexpected error occurred loading model '{model_filename}': {e}")
+        print(f"[Error] Unexpected error loading {model_path}: {type(e).__name__} - {e}")
         return None
+
 
 def get_wordcloud_paths(category_name):
-    """Gets the paths for the low and high score word clouds."""
-    safe_category_name = clean_category_name_for_files(category_name)
-    category_folder = os.path.join(WORDCLOUDS_DIR, safe_category_name)
+    """Gets the file paths for the word cloud images."""
+    path_formatted_name = format_category_for_wordcloud_path(category_name)
+    category_folder = os.path.join(WORDCLOUDS_DIR, path_formatted_name)
+    low_score_filename = f"low_score_{path_formatted_name}.png"
+    high_score_filename = f"high_score_{path_formatted_name}.png"
+    low_score_img_path = os.path.join(category_folder, low_score_filename)
+    high_score_img_path = os.path.join(category_folder, high_score_filename)
 
-    low_score_img = os.path.join(category_folder, f"low_score_{safe_category_name}.png")
-    high_score_img = os.path.join(category_folder, f"high_score_{safe_category_name}.png")
+    # Log checks to backend/terminal
+    print(f"[Word Cloud] Checking paths for '{category_name}': Low='{low_score_img_path}', High='{high_score_img_path}'")
 
-    # Check if files exist
-    if not os.path.exists(low_score_img):
-        low_score_img = None
-        st.warning(f"Low score word cloud not found for {category_name} at {low_score_img}")
-    if not os.path.exists(high_score_img):
-       high_score_img = None
-       st.warning(f"High score word cloud not found for {category_name} at {high_score_img}")
+    # Return paths if they exist, otherwise None
+    final_low_path = low_score_img_path if os.path.exists(low_score_img_path) else None
+    final_high_path = high_score_img_path if os.path.exists(high_score_img_path) else None
 
-    return low_score_img, high_score_img
+    if not final_low_path: print(f"[Warning] Low score image NOT FOUND for {category_name}")
+    if not final_high_path: print(f"[Warning] High score image NOT FOUND for {category_name}")
 
-# --- Define Categories (Manually or derive from folder names) ---
-# Option 1: Manually define (ensure names match your folders/models after cleaning)
-CATEGORIES = [
+    return final_low_path, final_high_path
+
+# --- Define Categories (Ensure these match user expectations and your data) ---
+CATEGORIES = sorted([ # Sort alphabetically for consistency
     'Soups & Chilis', 'Breads & Muffins', 'Breakfast', 'Cakes & Cupcakes',
     'Main Dishes', 'Pies & Tarts', 'Casseroles & Bakes', 'Pasta & Lasagna',
     'Salads & Sides', 'Dessert Specialties', 'Bars & Cookies'
-]
-# # Option 2: Derive from word cloud folder names (more robust if folders are correct)
-# try:
-#     raw_folder_names = [d for d in os.listdir(WORDCLOUDS_DIR) if os.path.isdir(os.path.join(WORDCLOUDS_DIR, d))]
-#     # Attempt to convert folder names back to original category names (might need adjustment)
-#     CATEGORIES = sorted([name.replace('_', ' & ').replace('_', ' ') for name in raw_folder_names]) # Simple replacement, adjust if needed
-#     if not CATEGORIES:
-#         st.error(f"Could not find any category folders in '{WORDCLOUDS_DIR}'. Please check the directory.")
-#         CATEGORIES = ["Error - Check Folders"] # Fallback
-# except FileNotFoundError:
-#      st.error(f"Word cloud directory '{WORDCLOUDS_DIR}' not found.")
-#      CATEGORIES = ["Error - Directory Missing"] # Fallback
-# except Exception as e:
-#      st.error(f"Error reading category folders: {e}")
-#      CATEGORIES = ["Error - Reading Folders"] # Fallback
-
+])
 
 # --- Streamlit App Layout ---
-st.set_page_config(layout="wide") # Use wider layout
+st.set_page_config(layout="wide", page_title="Recipe Score Predictor")
 
 st.title("🍲 Recipe Score Predictor & Analysis")
-st.markdown("Select a recipe category, input user interaction metrics, and predict the 'Best Score'. See word clouds representing common terms in low-scoring and high-scoring recipe reviews.")
+st.markdown("""
+Select a recipe category and input review interaction metrics to predict the recipe's likely
+'Best Score' (a popularity/ranking indicator). You can also view word clouds showing common
+terms found in low-scoring vs. high-scoring reviews for the selected category.
+""")
 
-# --- Sidebar for Inputs ---
-st.sidebar.header("Prediction Inputs")
+# --- Sidebar Inputs ---
+with st.sidebar:
+    st.header("⚙️ Prediction Inputs")
+    selected_category = st.selectbox(
+        "Select Recipe Category:",
+        options=CATEGORIES,
+        index=0, # Default to first category
+        key="category_selector"
+    )
+    st.markdown("---") # Separator
+    reply_count = st.number_input("Number of Replies", min_value=0, value=0, step=1, key="reply_input")
+    thumbs_up = st.number_input("Thumbs Up Count 👍", min_value=0, value=5, step=1, key="thumbs_up_input")
+    thumbs_down = st.number_input("Thumbs Down Count 👎", min_value=0, value=0, step=1, key="thumbs_down_input")
+    stars = st.slider("Star Rating ⭐", min_value=0, max_value=5, value=4, step=1, key="stars_slider")
+    st.markdown("---")
+    st.info("App based on recipe review data analysis.")
 
-# Category Selection
-selected_category = st.sidebar.selectbox(
-    "Select Recipe Category:",
-    options=CATEGORIES,
-    index=0 # Default to the first category
-)
-
-# Input Parameters
-st.sidebar.markdown("---") # Separator
-reply_count = st.sidebar.number_input("Number of Replies", min_value=0, value=0, step=1)
-thumbs_up = st.sidebar.number_input("Thumbs Up Count 👍", min_value=0, value=5, step=1)
-thumbs_down = st.sidebar.number_input("Thumbs Down Count 👎", min_value=0, value=0, step=1)
-stars = st.sidebar.slider("Star Rating ⭐", min_value=0, max_value=5, value=4, step=1) # Assuming stars are 0-5
-
-# --- Main Area for Results ---
-
-if selected_category and "Error" not in selected_category: # Check if a valid category is selected
+# --- Main Area Results ---
+if selected_category:
     st.header(f"Analysis for: {selected_category}")
 
     # --- Prediction Section ---
     st.subheader("📈 Score Prediction")
-
-    # Load the model for the selected category
+    # Attempt to load the model; errors handled within the function
     model = load_model(selected_category)
 
     if model:
-        # Prepare input data for prediction
-        # IMPORTANT: Create a DataFrame with columns in the SAME order as training data
+        # Prepare input data only if model loaded
         input_data = pd.DataFrame([[reply_count, thumbs_up, thumbs_down, stars]],
                                    columns=EXPECTED_FEATURES)
-
         st.write("Input Features:")
         st.dataframe(input_data)
-
-        # Make prediction
         try:
+            # Make prediction
             predicted_score = model.predict(input_data)[0]
-            # Display prediction
-            st.metric(label="Predicted Best Score", value=f"{predicted_score:.2f}") # Format to 2 decimal places
-
-            score_comparison = "Above" if predicted_score >= SCORE_THRESHOLD else "Below"
-            st.info(f"The predicted score is **{score_comparison}** the threshold of {SCORE_THRESHOLD}.")
-
+            st.metric(label="Predicted Best Score", value=f"{predicted_score:.2f}")
+            # Compare to threshold
+            score_comparison = "Above or Equal To" if predicted_score >= SCORE_THRESHOLD else "Below"
+            st.info(f"The predicted score is **{score_comparison}** the threshold ({SCORE_THRESHOLD}).")
         except Exception as e:
+            # Catch errors during the predict step
             st.error(f"Error during prediction: {e}")
-            st.error("Please ensure the input values are valid and the model was trained with these features in the correct order.")
+            print(f"[Error] Prediction step failed: {e}")
+    else:
+        # Message if model loading failed (error details already shown by load_model)
+        st.error("Prediction cannot proceed because the model for this category could not be loaded.")
 
     # --- Word Cloud Section ---
     st.subheader("💬 Word Clouds")
-    st.markdown(f"Common words in reviews for **{selected_category}** recipes.")
-
+    st.markdown(f"Common words in reviews for **{selected_category}**.")
+    # Get image paths
     low_score_img_path, high_score_img_path = get_wordcloud_paths(selected_category)
-
+    # Display side-by-side
     col1, col2 = st.columns(2)
-
     with col1:
         st.markdown(f"**Reviews with Score < {SCORE_THRESHOLD}**")
         if low_score_img_path:
-            st.image(low_score_img_path, use_column_width=True)
+            st.image(low_score_img_path, caption=f"Low Score (<{SCORE_THRESHOLD}) Words", use_container_width=True)
         else:
-            st.warning("Low score word cloud image not found.")
-
+            st.info("Low score word cloud image not found.")
     with col2:
         st.markdown(f"**Reviews with Score >= {SCORE_THRESHOLD}**")
         if high_score_img_path:
-            st.image(high_score_img_path, use_column_width=True)
+            st.image(high_score_img_path, caption=f"High Score (>= {SCORE_THRESHOLD}) Words", use_container_width=True)
         else:
-            st.warning("High score word cloud image not found.")
-
+            st.info("High score word cloud image not found.")
 else:
-    st.warning("Please select a valid recipe category from the sidebar.")
-
-st.sidebar.markdown("---")
-st.sidebar.info("App developed based on recipe review data.")
+    # Fallback if no category is selected (shouldn't happen with default)
+    st.warning("Please select a recipe category from the sidebar.")
