@@ -1,0 +1,5 @@
+pandas
+streamlit
+scikit-learn  # Or the specific version you used, e.g., scikit-learn==1.2.2
+numpy
+# Add any other specific libraries your prediction.pkl files might depend on
