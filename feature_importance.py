@@ -15,6 +15,7 @@ except FileNotFoundError:
     print("Error: 'cleaned_recipes.csv' not found.")
     # exit() # Optionally exit or handle the error appropriately
 
+
 # --- Configuration ---
 categories_to_plot = [
     'Breads & Muffins',
@@ -32,7 +33,7 @@ categories_to_plot = [
 categories_to_plot.sort() # Optional: Sort alphabetically for consistent grid order
 
 # Features to use for modeling within each category subset
-feature_cols_numeric = ['user_reputation', 'reply_count', 'thumbs_up', 'thumbs_down', 'stars']
+feature_cols_numeric = ['user_reputation', 'reply_count', 'stars']
 target_col = 'best_score'
 
 # Grid layout parameters
