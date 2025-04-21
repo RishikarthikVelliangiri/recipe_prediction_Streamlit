@@ -1,10 +1,10 @@
-# generate_importance_plots.py
+# generate_importance_plots.py (Corrected for "No Thumbs Up")
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestRegressor
-import joblib # Only needed if loading something, not here
+# joblib is not needed here unless loading external data/models
 import os
 import math
 import re # Keep re for filename cleaning function consistency
@@ -24,11 +24,13 @@ FEATURE_SETS = [
         "features": ['user_reputation', 'reply_count', 'thumbs_up', 'thumbs_down', 'stars'],
         "filename": "importance_grid_all_features.png"
     },
+    # --- MODIFIED THIS ENTRY ---
     {
-        "name": "No Thumbs Down",
-        "features": ['user_reputation', 'reply_count', 'thumbs_up', 'stars'],
-        "filename": "importance_grid_no_thumbs_down.png"
+        "name": "No Thumbs Up", # Changed Name
+        "features": ['user_reputation', 'reply_count', 'thumbs_down', 'stars'], # Removed thumbs_up, kept thumbs_down
+        "filename": "importance_grid_no_thumbs_up.png" # Changed Filename
     },
+    # --- END MODIFICATION ---
     {
         "name": "No Thumbs Up or Down",
         "features": ['user_reputation', 'reply_count', 'stars'],
@@ -52,7 +54,6 @@ except Exception as e:
     exit()
 
 # --- Prepare Data ---
-# Keep only necessary columns initially, handle NaNs once
 all_needed_cols = list(set([TARGET_COL, CATEGORY_COL] + [feat for aset in FEATURE_SETS for feat in aset['features']]))
 print(f"Using columns: {all_needed_cols}")
 
@@ -94,7 +95,6 @@ for feature_set_info in FEATURE_SETS:
     n_categories = len(categories)
     n_rows = math.ceil(n_categories / N_COLS_GRID)
     fig, axs = plt.subplots(n_rows, N_COLS_GRID, figsize=(5 * N_COLS_GRID, 4.5 * n_rows), sharex=False)
-    # Adjust figsize height slightly
     axs = axs.flatten() # Flatten for easy iteration
 
     plot_index = 0
@@ -156,25 +156,18 @@ for feature_set_info in FEATURE_SETS:
         plot_index += 1 # Move to the next subplot position
 
     # --- Finalize Grid Plot ---
-    # Hide any unused subplots
-    for i in range(plot_index, n_rows * N_COLS_GRID):
-        try:
-            axs[i].axis('off')
-        except IndexError: # Handles cases where axs might not be perfectly rectangular if flatten() was used
-            pass
-
-    # Add overall title for the grid
+    for i in range(plot_index, n_rows * N_COLS_GRID): # Hide unused
+        try: axs[i].axis('off')
+        except IndexError: pass
     fig.suptitle(f'Feature Importance by Category\n({set_name})', fontsize=16, y=1.03)
-    # Adjust layout
-    fig.tight_layout(rect=[0, 0.02, 1, 0.97]) # Adjust rect to prevent title overlap
+    fig.tight_layout(rect=[0, 0.02, 1, 0.97])
 
     # --- Save the Figure ---
     try:
-        plt.savefig(output_filepath, dpi=150, bbox_inches='tight') # Save with good resolution
+        plt.savefig(output_filepath, dpi=150, bbox_inches='tight')
         print(f"--> Saved plot grid to: {output_filepath}")
     except Exception as e:
         print(f"Error saving plot '{output_filepath}': {e}")
-
-    plt.close(fig) # Close the figure to free memory
+    plt.close(fig)
 
 print("\n--- Feature Importance Plot Generation Complete ---")
